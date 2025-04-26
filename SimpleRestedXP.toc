@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: SimpleRestedXP
+## Notes: Muestra tu Rested Experience actual.
+## Author: GitForWoW
+## Version: 1.0
+
+SimpleRestedXP.lua
