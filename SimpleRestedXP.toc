@@ -1,8 +1,8 @@
 ## Interface: 11200
 ## Title: SimpleRestedXP
-## Notes: Muestra tu Rested XP de forma simple y movable.
-## Author: GitForWoW
-## Version: 1.0
-## SavedVariables: SimpleRestedXPPos
+## Notes: Muestra información detallada de experiencia en descanso con opciones personalizables.
+## Author: GitForWoW (Improved by Claude)
+## Version: 2.0
+## SavedVariables: SimpleRestedXPConfig
 
 SimpleRestedXP.lua
