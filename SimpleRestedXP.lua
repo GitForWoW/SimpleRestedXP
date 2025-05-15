@@ -21,6 +21,7 @@ local lastRestedXP = 0
 local xpPerHour = 0
 local isResting = false
 local timeToMax = 0
+local debugETA = false -- Desactivado por defecto
 
 -- Crear el marco principal
 local frame = CreateFrame("Frame", "SimpleRestedXPFrame", UIParent)
@@ -151,29 +152,98 @@ local function UpdateRestedXP()
     
     -- Calculamos la tasa de acumulación de XP en descanso y ETA
     local currentTime = GetTime()
-    if currentTime - lastUpdate > 10 then -- Actualizamos cada 10 segundos
-        if lastRestedXP > 0 and isResting then
-            -- Solo calculamos si estamos en descanso y tenemos un valor previo
-            local xpGained = restedXP - lastRestedXP
-            if xpGained > 0 then
-                local elapsedHours = (currentTime - lastUpdate) / 3600
-                xpPerHour = xpGained / elapsedHours
+    local secondsElapsed = currentTime - lastUpdate
+
+    -- Para obtener un cálculo rápido inicial, forzamos una actualización cada 10 segundos al principio
+    -- o si hay un valor significativo de XP ganado
+    local shouldUpdate = false
+
+    if secondsElapsed > 10 then -- Actualizamos cada 10 segundos mínimo
+        shouldUpdate = true
+    end
+
+    -- Si estamos descansando y tenemos un valor anterior de XP
+    if lastRestedXP > 0 and isResting then
+        local xpGained = restedXP - lastRestedXP
+        
+        -- Si hemos ganado XP significativa (más de 5 puntos), actualizamos
+        if xpGained >= 5 then
+            shouldUpdate = true
+        end
+        
+        -- Debug para verificar
+        if debugETA and xpGained ~= 0 then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff55ff55[SimpleRestedXP Debug]|r XP Gained: " .. xpGained .. " in " .. secondsElapsed .. " seconds")
+        end
+        
+        -- Si debemos actualizar
+        if shouldUpdate and xpGained > 0 then
+            -- La tasa base de acumulación de XP en descanso es aproximadamente 5% del nivel por 8 horas
+            -- o aproximadamente 0.625% por hora
+            -- Usamos este valor conocido para hacer una estimación más precisa
+            local baseRatePerHour = (maxXP * 0.00625) -- 0.625% del nivel por hora
+            
+            -- Calculamos la tasa observada
+            local elapsedHours = secondsElapsed / 3600
+            local observedRatePerHour = xpGained / elapsedHours
+            
+            -- Usamos la tasa base si estamos en una zona de descanso regular
+            -- o la tasa observada si es diferente (podría ser un evento especial o algo similar)
+            if math.abs(observedRatePerHour - baseRatePerHour) < baseRatePerHour * 0.2 then
+                -- Estamos dentro del 20% de la tasa esperada, usamos la tasa base para mayor precisión
+                xpPerHour = baseRatePerHour
+                if debugETA then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff55ff55[SimpleRestedXP Debug]|r Using base rate: " .. xpPerHour)
+                end
+            else
+                -- La tasa observada es significativamente diferente, la usamos
+                xpPerHour = observedRatePerHour
+                if debugETA then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff55ff55[SimpleRestedXP Debug]|r Using observed rate: " .. xpPerHour)
+                end
+            end
+            
+            -- XP necesaria para llegar al 150%
+            local maxRestedXP = maxXP * 1.5
+            local xpNeeded = maxRestedXP - restedXP
+            
+            if xpPerHour > 0 then
+                timeToMax = xpNeeded / xpPerHour -- tiempo en horas
+                timeToMax = timeToMax * 3600 -- convertir a segundos
                 
-                -- XP necesaria para llegar al 150%
-                local maxRestedXP = maxXP * 1.5
-                local xpNeeded = maxRestedXP - restedXP
+                -- Debug para verificar tiempo estimado
+                if debugETA then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff55ff55[SimpleRestedXP Debug]|r Time to Max: " .. FormatTime(timeToMax))
+                end
+            else
+                timeToMax = 0
+            end
+            
+            -- Actualizamos los valores para la próxima iteración
+            lastRestedXP = restedXP
+            lastUpdate = currentTime
+        end
+    else
+        -- Primera vez o no estamos descansando, inicializamos los valores
+        lastRestedXP = restedXP
+        lastUpdate = currentTime
+        
+        -- Si estamos descansando, damos una estimación inicial basada en la tasa estándar
+        if isResting then
+            local baseRatePerHour = (maxXP * 0.00625) -- 0.625% del nivel por hora
+            local maxRestedXP = maxXP * 1.5
+            local xpNeeded = maxRestedXP - restedXP
+            
+            if baseRatePerHour > 0 then
+                timeToMax = xpNeeded / baseRatePerHour -- tiempo en horas
+                timeToMax = timeToMax * 3600 -- convertir a segundos
+                xpPerHour = baseRatePerHour
                 
-                if xpPerHour > 0 then
-                    timeToMax = xpNeeded / xpPerHour -- tiempo en horas
-                    timeToMax = timeToMax * 3600 -- convertir a segundos
-                else
-                    timeToMax = 0
+                if debugETA then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff55ff55[SimpleRestedXP Debug]|r Initial Estimate - Time to Max: " .. FormatTime(timeToMax))
                 end
             end
         end
-        
-        lastRestedXP = restedXP
-        lastUpdate = currentTime
     end
     
     -- Texto a mostrar: solo "Rested XP" en el título
@@ -199,7 +269,10 @@ local function UpdateRestedXP()
     bar:Show()
     bar:SetWidth(SimpleRestedXPConfig.barWidth)
     bar:SetHeight(SimpleRestedXPConfig.barHeight)
-    bar:SetMinMaxValues(0, maxXP)
+    
+    -- Configurar la barra para que represente el progreso hacia el 150% máximo de XP
+    local maxRestedXP = maxXP * 1.5 -- El máximo es 150% del nivel actual
+    bar:SetMinMaxValues(0, maxRestedXP)
     bar:SetValue(restedXP)
     
     -- Mostrar la información de XP en la barra (solo porcentaje)
@@ -211,6 +284,11 @@ local function UpdateRestedXP()
         -- Aseguramos que el tiempo sea razonable (superior a 1 minuto e inferior a 100 días)
         if timeToMax > 60 and timeToMax < 8640000 then
             barInfo = barInfo .. " | Max: " .. FormatTime(timeToMax)
+            
+            -- Debug para verificar que estamos añadiendo el ETA al texto
+            if debugETA then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff55ff55[SimpleRestedXP Debug]|r Final Display: " .. barInfo)
+            end
         end
     end
     
@@ -369,6 +447,12 @@ frame:SetScript("OnEvent", function(self, event, ...)
         
         -- Crear panel de opciones
         CreateOptionsPanel()
+        
+        -- Inicializar valores para cálculo de ETA
+        if IsResting() then
+            lastUpdate = GetTime() - 30 -- Forzar primera actualización en 30 segundos
+            lastRestedXP = GetXPExhaustion() or 0
+        end
     end
     
     UpdateRestedXP()
@@ -393,11 +477,15 @@ SlashCmdList["SIMPLERESTEDXP"] = function(msg)
         print("|cFF00FF00SimpleRestedXP|r: Configuración restablecida")
     elseif msg == "config" or msg == "options" then
         InterfaceOptionsFrame_OpenToCategory("SimpleRestedXP")
+    elseif msg == "debug" then
+        debugETA = not debugETA
+        print("|cFF00FF00SimpleRestedXP|r: Debug " .. (debugETA and "Activado" or "Desactivado"))
     else
         print("|cFF00FF00SimpleRestedXP|r: Comandos disponibles:")
         print("   /srxp - Alternar activado/desactivado")
         print("   /srxp move - Alternar modo de movimiento")
         print("   /srxp reset - Resetear a configuración por defecto")
         print("   /srxp config - Abrir panel de configuración")
+        print("   /srxp debug - Activar/desactivar mensajes de depuración")
     end
 end
